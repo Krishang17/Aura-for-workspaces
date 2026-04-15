@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import {
@@ -17,52 +18,9 @@ import {
   CheckCircle2,
   TrendingUp,
   Clock,
+  Loader2,
 } from "lucide-react";
-
-// Demo data — will be replaced with live Firestore data in Phase 1
-const DEMO_BRIEFING = {
-  summary:
-    "You have 3 high-priority emails requiring responses, a scheduling conflict at 2 PM, and 2 action items carried over from yesterday. Your afternoon is clear for deep work after the conflict is resolved.",
-  stats: {
-    unreadEmails: 12,
-    todayMeetings: 4,
-    actionItems: 5,
-    conflicts: 1,
-  },
-  urgentItems: [
-    {
-      id: "1",
-      type: "email" as const,
-      title: "Q3 Budget Review — needs approval",
-      from: "Sarah Chen",
-      urgency: "high" as const,
-      time: "9:15 AM",
-    },
-    {
-      id: "2",
-      type: "email" as const,
-      title: "Partnership proposal from Acme Corp",
-      from: "James Wilson",
-      urgency: "high" as const,
-      time: "8:42 AM",
-    },
-    {
-      id: "3",
-      type: "event" as const,
-      title: "Conflict: Team Standup & Client Call overlap at 2:00 PM",
-      from: "Calendar",
-      urgency: "critical" as const,
-      time: "2:00 PM",
-    },
-  ],
-  actionItems: [
-    { text: "Reply to Sarah about budget approval", done: false },
-    { text: "Prepare slides for Thursday board meeting", done: false },
-    { text: "Review hiring pipeline spreadsheet", done: true },
-    { text: "Send follow-up to vendor negotiation", done: false },
-    { text: "Sign off on marketing campaign brief", done: false },
-  ],
-};
+import type { GmailMessage } from "@/lib/gmail";
 
 const urgencyColor = {
   low: "secondary",
@@ -73,6 +31,25 @@ const urgencyColor = {
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
+  const [emails, setEmails] = useState<GmailMessage[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [emailsLoading, setEmailsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const res = await fetch("/api/gmail");
+        if (res.ok) {
+          const data = await res.json();
+          setEmails(data.messages ?? []);
+          setUnreadCount(data.unreadCount ?? 0);
+        }
+      } finally {
+        setEmailsLoading(false);
+      }
+    }
+    if (session) loadData();
+  }, [session]);
 
   if (status === "loading") {
     return (
@@ -85,12 +62,30 @@ export default function DashboardPage() {
 
   const firstName = session.user?.name?.split(" ")[0] ?? "there";
 
+  // Build urgent items from real emails (unread)
+  const urgentEmails = emails
+    .filter((e) => e.unread)
+    .slice(0, 5)
+    .map((e) => ({
+      id: e.id,
+      type: "email" as const,
+      title: e.subject,
+      from: e.from,
+      urgency: "high" as const,
+      time: e.date,
+    }));
+
+  // Greeting based on time of day
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          Good morning, {firstName}
+          {greeting}, {firstName}
         </h1>
         <p className="text-muted-foreground">
           Here&apos;s your executive briefing for today.
@@ -109,9 +104,19 @@ export default function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm leading-relaxed text-indigo-900 dark:text-indigo-100">
-            {DEMO_BRIEFING.summary}
-          </p>
+          {emailsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Analyzing your inbox...
+            </div>
+          ) : (
+            <p className="text-sm leading-relaxed text-indigo-900 dark:text-indigo-100">
+              You have {unreadCount} unread email{unreadCount !== 1 ? "s" : ""} in your inbox.
+              {urgentEmails.length > 0
+                ? ` ${urgentEmails.length} need${urgentEmails.length === 1 ? "s" : ""} your attention — the most recent is from ${urgentEmails[0].from} about "${urgentEmails[0].title}".`
+                : " You're all caught up — no urgent items right now."}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -120,27 +125,27 @@ export default function DashboardPage() {
         {[
           {
             label: "Unread Emails",
-            value: DEMO_BRIEFING.stats.unreadEmails,
+            value: emailsLoading ? "..." : unreadCount,
             icon: Mail,
             color: "text-blue-600",
           },
           {
             label: "Today's Meetings",
-            value: DEMO_BRIEFING.stats.todayMeetings,
+            value: "—",
             icon: CalendarDays,
             color: "text-green-600",
           },
           {
-            label: "Action Items",
-            value: DEMO_BRIEFING.stats.actionItems,
+            label: "Total Fetched",
+            value: emailsLoading ? "..." : emails.length,
             icon: CheckCircle2,
             color: "text-amber-600",
           },
           {
-            label: "Conflicts",
-            value: DEMO_BRIEFING.stats.conflicts,
+            label: "Provider",
+            value: session.provider === "google" ? "Gmail" : session.provider === "microsoft" ? "Outlook" : session.provider ?? "—",
             icon: AlertTriangle,
-            color: "text-red-600",
+            color: "text-indigo-600",
           },
         ].map((stat) => (
           <Card key={stat.label}>
@@ -157,69 +162,48 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Urgent items */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Needs Your Attention</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {DEMO_BRIEFING.urgentItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-start gap-3 rounded-lg border border-border p-3"
-              >
-                <div className="mt-0.5">
-                  {item.type === "email" ? (
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{item.title}</p>
-                  <p className="text-xs text-muted-foreground">{item.from}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge variant={urgencyColor[item.urgency]}>
-                    {item.urgency}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {item.time}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        {/* Action items */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Action Items</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {DEMO_BRIEFING.actionItems.map((item, i) => (
-              <label
-                key={i}
-                className="flex items-center gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
-              >
-                <input
-                  type="checkbox"
-                  defaultChecked={item.done}
-                  className="h-4 w-4 rounded accent-primary"
-                />
-                <span
-                  className={`text-sm ${item.done ? "text-muted-foreground line-through" : ""}`}
+      {/* Urgent emails from real inbox */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Needs Your Attention</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {emailsLoading ? (
+            <div className="flex items-center gap-2 py-4 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading...</span>
+            </div>
+          ) : urgentEmails.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              No unread emails — you&apos;re all caught up!
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {urgentEmails.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-start gap-3 rounded-lg border border-border p-3"
                 >
-                  {item.text}
-                </span>
-              </label>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+                  <div className="mt-0.5">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">{item.from}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge variant={urgencyColor[item.urgency]}>new</Badge>
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {item.time}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
