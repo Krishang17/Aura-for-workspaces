@@ -63,7 +63,7 @@ export async function fetchGmailMessages(
 ): Promise<GmailMessage[]> {
   // Step 1: List message IDs
   const listRes = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&labelIds=INBOX`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
