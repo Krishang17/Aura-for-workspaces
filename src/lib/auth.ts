@@ -1,4 +1,5 @@
 import type { NextAuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import GoogleProvider from "next-auth/providers/google";
 import SlackProvider from "next-auth/providers/slack";
 
@@ -27,6 +28,36 @@ const MicrosoftProvider = {
   },
 };
 
+async function refreshGoogleToken(token: JWT): Promise<JWT> {
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        grant_type: "refresh_token",
+        refresh_token: token.refreshToken as string,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) throw data;
+
+    return {
+      ...token,
+      accessToken: data.access_token,
+      expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in as number),
+      // Google may or may not return a new refresh token
+      refreshToken: data.refresh_token ?? token.refreshToken,
+    };
+  } catch (error) {
+    console.error("Error refreshing Google token:", error);
+    return { ...token, error: "RefreshTokenError" };
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -50,18 +81,32 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async jwt({ token, account }) {
-      // Persist the OAuth access_token and provider to the JWT on first sign-in
+      // First sign-in: persist OAuth tokens
       if (account) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.provider = account.provider;
-        token.expiresAt = account.expires_at;
+        return {
+          ...token,
+          accessToken: account.access_token,
+          refreshToken: account.refresh_token,
+          provider: account.provider,
+          expiresAt: account.expires_at,
+        };
       }
+
+      // Token hasn't expired yet — return as-is
+      if (token.expiresAt && Date.now() / 1000 < token.expiresAt - 60) {
+        return token;
+      }
+
+      // Token expired — refresh it
+      if (token.provider === "google" && token.refreshToken) {
+        return refreshGoogleToken(token);
+      }
+
+      // For other providers or if no refresh token, return as-is
       return token;
     },
 
     async session({ session, token }) {
-      // Expose provider & access token to client-side session
       session.user.id = token.sub!;
       session.provider = token.provider as string;
       session.accessToken = token.accessToken as string;
