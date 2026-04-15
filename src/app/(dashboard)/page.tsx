@@ -14,38 +14,52 @@ import { Badge } from "@/components/ui/badge";
 import {
   Mail,
   CalendarDays,
-  AlertTriangle,
-  CheckCircle2,
+  MessageSquare,
   TrendingUp,
   Clock,
   Loader2,
+  Plug,
 } from "lucide-react";
-import type { GmailMessage } from "@/lib/gmail";
 
-const urgencyColor = {
-  low: "secondary",
-  medium: "warning",
-  high: "destructive",
-  critical: "destructive",
-} as const;
+interface EmailMessage {
+  id: string;
+  from: string;
+  subject: string;
+  date: string;
+  unread: boolean;
+}
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
-  const [emails, setEmails] = useState<GmailMessage[]>([]);
+  const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [emailProvider, setEmailProvider] = useState("");
   const [emailsLoading, setEmailsLoading] = useState(true);
+  const [slackConnected, setSlackConnected] = useState(false);
+  const [slackTeam, setSlackTeam] = useState("");
 
   useEffect(() => {
     async function loadData() {
       try {
-        const res = await fetch("/api/gmail");
+        const res = await fetch("/api/emails");
         if (res.ok) {
           const data = await res.json();
           setEmails(data.messages ?? []);
           setUnreadCount(data.unreadCount ?? 0);
+          setEmailProvider(data.provider ?? "");
         }
       } finally {
         setEmailsLoading(false);
+      }
+
+      // Check Slack status
+      try {
+        const res = await fetch("/api/slack/status");
+        const data = await res.json();
+        setSlackConnected(data.connected);
+        if (data.team) setSlackTeam(data.team);
+      } catch {
+        // Slack not connected — that's fine
       }
     }
     if (session) loadData();
@@ -62,23 +76,22 @@ export default function DashboardPage() {
 
   const firstName = session.user?.name?.split(" ")[0] ?? "there";
 
-  // Build urgent items from real emails (unread)
-  const urgentEmails = emails
-    .filter((e) => e.unread)
-    .slice(0, 5)
-    .map((e) => ({
-      id: e.id,
-      type: "email" as const,
-      title: e.subject,
-      from: e.from,
-      urgency: "high" as const,
-      time: e.date,
-    }));
+  const unreadEmails = emails.filter((e) => e.unread).slice(0, 5);
 
-  // Greeting based on time of day
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const providerLabel =
+    emailProvider === "gmail"
+      ? "Gmail"
+      : emailProvider === "outlook"
+        ? "Outlook"
+        : session.provider === "google"
+          ? "Gmail"
+          : session.provider === "microsoft"
+            ? "Outlook"
+            : "Email";
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -111,10 +124,14 @@ export default function DashboardPage() {
             </div>
           ) : (
             <p className="text-sm leading-relaxed text-indigo-900 dark:text-indigo-100">
-              You have {unreadCount} unread email{unreadCount !== 1 ? "s" : ""} in your inbox.
-              {urgentEmails.length > 0
-                ? ` ${urgentEmails.length} need${urgentEmails.length === 1 ? "s" : ""} your attention — the most recent is from ${urgentEmails[0].from} about "${urgentEmails[0].title}".`
-                : " You're all caught up — no urgent items right now."}
+              You have {unreadCount} unread email
+              {unreadCount !== 1 ? "s" : ""} in {providerLabel}.
+              {unreadEmails.length > 0
+                ? ` ${unreadEmails.length} need${unreadEmails.length === 1 ? "s" : ""} your attention \u2014 the most recent is from ${unreadEmails[0].from} about "${unreadEmails[0].subject}".`
+                : " You're all caught up \u2014 no urgent items right now."}
+              {slackConnected
+                ? ` Slack (${slackTeam}) is connected and being monitored.`
+                : ""}
             </p>
           )}
         </CardContent>
@@ -122,47 +139,57 @@ export default function DashboardPage() {
 
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[
-          {
-            label: "Unread Emails",
-            value: emailsLoading ? "..." : unreadCount,
-            icon: Mail,
-            color: "text-blue-600",
-          },
-          {
-            label: "Today's Meetings",
-            value: "—",
-            icon: CalendarDays,
-            color: "text-green-600",
-          },
-          {
-            label: "Total Fetched",
-            value: emailsLoading ? "..." : emails.length,
-            icon: CheckCircle2,
-            color: "text-amber-600",
-          },
-          {
-            label: "Provider",
-            value: session.provider === "google" ? "Gmail" : session.provider === "microsoft" ? "Outlook" : session.provider ?? "—",
-            icon: AlertTriangle,
-            color: "text-indigo-600",
-          },
-        ].map((stat) => (
-          <Card key={stat.label}>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className={`rounded-lg bg-muted p-2.5 ${stat.color}`}>
-                <stat.icon className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{stat.value}</p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="rounded-lg bg-muted p-2.5 text-blue-600">
+              <Mail className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {emailsLoading ? "..." : unreadCount}
+              </p>
+              <p className="text-xs text-muted-foreground">Unread Emails</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="rounded-lg bg-muted p-2.5 text-green-600">
+              <CalendarDays className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">\u2014</p>
+              <p className="text-xs text-muted-foreground">Today&apos;s Meetings</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="rounded-lg bg-muted p-2.5 text-purple-600">
+              <MessageSquare className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">
+                {slackConnected ? "Connected" : "\u2014"}
+              </p>
+              <p className="text-xs text-muted-foreground">Slack</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="rounded-lg bg-muted p-2.5 text-indigo-600">
+              <Plug className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{providerLabel}</p>
+              <p className="text-xs text-muted-foreground">Email Provider</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Urgent emails from real inbox */}
+      {/* Urgent emails */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Needs Your Attention</CardTitle>
@@ -173,13 +200,13 @@ export default function DashboardPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
               <span className="text-sm">Loading...</span>
             </div>
-          ) : urgentEmails.length === 0 ? (
+          ) : unreadEmails.length === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
-              No unread emails — you&apos;re all caught up!
+              No unread emails \u2014 you&apos;re all caught up!
             </p>
           ) : (
             <div className="space-y-3">
-              {urgentEmails.map((item) => (
+              {unreadEmails.map((item) => (
                 <div
                   key={item.id}
                   className="flex items-start gap-3 rounded-lg border border-border p-3"
@@ -188,14 +215,16 @@ export default function DashboardPage() {
                     <Mail className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.title}</p>
+                    <p className="text-sm font-medium truncate">
+                      {item.subject}
+                    </p>
                     <p className="text-xs text-muted-foreground">{item.from}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <Badge variant={urgencyColor[item.urgency]}>new</Badge>
+                    <Badge variant="destructive">new</Badge>
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {item.time}
+                      {item.date}
                     </span>
                   </div>
                 </div>

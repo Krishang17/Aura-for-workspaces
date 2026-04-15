@@ -1,10 +1,8 @@
 import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import GoogleProvider from "next-auth/providers/google";
-import SlackProvider from "next-auth/providers/slack";
 
-// Microsoft Entra ID (Azure AD) provider — configured manually
-// because the built-in AzureADProvider was removed in newer versions.
+// Microsoft Entra ID (Azure AD) provider
 const MicrosoftProvider = {
   id: "microsoft",
   name: "Microsoft",
@@ -13,7 +11,8 @@ const MicrosoftProvider = {
     "https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
   authorization: {
     params: {
-      scope: "openid profile email User.Read Mail.Read Calendars.Read",
+      scope: "openid profile email offline_access User.Read Mail.Read Calendars.Read",
+      prompt: "consent",
     },
   },
   clientId: process.env.MICROSOFT_CLIENT_ID!,
@@ -40,20 +39,46 @@ async function refreshGoogleToken(token: JWT): Promise<JWT> {
         refresh_token: token.refreshToken as string,
       }),
     });
-
     const data = await res.json();
-
     if (!res.ok) throw data;
-
     return {
       ...token,
       accessToken: data.access_token,
       expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in as number),
-      // Google may or may not return a new refresh token
       refreshToken: data.refresh_token ?? token.refreshToken,
     };
   } catch (error) {
     console.error("Error refreshing Google token:", error);
+    return { ...token, error: "RefreshTokenError" };
+  }
+}
+
+async function refreshMicrosoftToken(token: JWT): Promise<JWT> {
+  try {
+    const res = await fetch(
+      "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: process.env.MICROSOFT_CLIENT_ID!,
+          client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
+          grant_type: "refresh_token",
+          refresh_token: token.refreshToken as string,
+          scope: "openid profile email offline_access User.Read Mail.Read Calendars.Read",
+        }),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw data;
+    return {
+      ...token,
+      accessToken: data.access_token,
+      expiresAt: Math.floor(Date.now() / 1000) + (data.expires_in as number),
+      refreshToken: data.refresh_token ?? token.refreshToken,
+    };
+  } catch (error) {
+    console.error("Error refreshing Microsoft token:", error);
     return { ...token, error: "RefreshTokenError" };
   }
 }
@@ -73,10 +98,6 @@ export const authOptions: NextAuthOptions = {
       },
     }),
     MicrosoftProvider,
-    SlackProvider({
-      clientId: process.env.SLACK_CLIENT_ID!,
-      clientSecret: process.env.SLACK_CLIENT_SECRET!,
-    }),
   ],
 
   callbacks: {
@@ -92,17 +113,17 @@ export const authOptions: NextAuthOptions = {
         };
       }
 
-      // Token hasn't expired yet — return as-is
+      // Token hasn't expired yet — return as-is (with 60s buffer)
       if (token.expiresAt && Date.now() / 1000 < token.expiresAt - 60) {
         return token;
       }
 
-      // Token expired — refresh it
-      if (token.provider === "google" && token.refreshToken) {
-        return refreshGoogleToken(token);
+      // Token expired — refresh based on provider
+      if (token.refreshToken) {
+        if (token.provider === "google") return refreshGoogleToken(token);
+        if (token.provider === "microsoft") return refreshMicrosoftToken(token);
       }
 
-      // For other providers or if no refresh token, return as-is
       return token;
     },
 
