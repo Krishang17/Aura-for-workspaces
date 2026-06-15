@@ -224,12 +224,12 @@ function IntegrationsContent() {
             to your inbox and calendar.
           </p>
           <p>
-            <strong>Slack</strong> is connected separately \u2014 click
+            <strong>Slack</strong> is connected separately — click
             &quot;Connect Slack&quot; above to authorize. Your company admin can
             pre-approve the Slack app for all employees.
           </p>
           <p>
-            Your credentials are never stored \u2014 only encrypted OAuth
+            Your credentials are never stored — only encrypted OAuth
             tokens. You can revoke access at any time from this page or from the
             provider&apos;s security settings.
           </p>

@@ -61,9 +61,11 @@ export async function fetchGmailMessages(
   accessToken: string,
   maxResults = 20
 ): Promise<GmailMessage[]> {
-  // Step 1: List message IDs
+  // Step 1: List message IDs from the Primary inbox category only
+  // (excludes Promotions, Social, Updates, Forums tabs)
+  const query = encodeURIComponent("in:inbox category:primary");
   const listRes = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${query}`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
 
@@ -112,11 +114,13 @@ export async function fetchGmailMessages(
 }
 
 export async function getGmailUnreadCount(accessToken: string): Promise<number> {
+  // Count unread messages in the Primary inbox category only
+  const query = encodeURIComponent("in:inbox category:primary is:unread");
   const res = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/labels/INBOX`,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=1`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   if (!res.ok) return 0;
   const data = await res.json();
-  return data.messagesUnread ?? 0;
+  return data.resultSizeEstimate ?? 0;
 }

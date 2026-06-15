@@ -158,7 +158,7 @@ export default function DashboardPage() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold">\u2014</p>
+              <p className="text-2xl font-bold">—</p>
               <p className="text-xs text-muted-foreground">Today&apos;s Meetings</p>
             </div>
           </CardContent>
@@ -202,7 +202,7 @@ export default function DashboardPage() {
             </div>
           ) : unreadEmails.length === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
-              No unread emails \u2014 you&apos;re all caught up!
+              No unread emails — you&apos;re all caught up!
             </p>
           ) : (
             <div className="space-y-3">
