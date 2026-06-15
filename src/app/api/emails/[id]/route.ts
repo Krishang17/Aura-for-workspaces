@@ -3,9 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { fetchGmailMessage } from "@/lib/gmail";
 import { fetchOutlookMessage } from "@/lib/outlook";
+import { getOutlookAccessToken } from "@/lib/secondary-auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions);
@@ -14,16 +15,31 @@ export async function GET(
   }
 
   const { id } = await params;
+  // The list view tells us which provider the email came from
+  const source = request.nextUrl.searchParams.get("source");
 
   try {
-    if (session.provider === "google") {
+    if (source === "gmail" || (!source && session.provider === "google")) {
       const message = await fetchGmailMessage(session.accessToken, id);
       return NextResponse.json({ message });
     }
-    if (session.provider === "microsoft") {
-      const message = await fetchOutlookMessage(session.accessToken, id);
+
+    if (source === "outlook" || (!source && session.provider === "microsoft")) {
+      // Use the primary Microsoft token, or the secondary Outlook token
+      const token =
+        session.provider === "microsoft"
+          ? session.accessToken
+          : await getOutlookAccessToken();
+      if (!token) {
+        return NextResponse.json(
+          { error: "Outlook not connected" },
+          { status: 400 }
+        );
+      }
+      const message = await fetchOutlookMessage(token, id);
       return NextResponse.json({ message });
     }
+
     return NextResponse.json(
       { error: "No email provider connected" },
       { status: 400 }

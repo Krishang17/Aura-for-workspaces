@@ -1,10 +1,14 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { fetchGmailMessages, getGmailUnreadCount } from "@/lib/gmail";
-import { fetchOutlookMessages, getOutlookUnreadCount } from "@/lib/outlook";
+import { fetchGmailMessages, getGmailUnreadCount, type GmailMessage } from "@/lib/gmail";
+import { fetchOutlookMessages, getOutlookUnreadCount, type OutlookMessage } from "@/lib/outlook";
+import { getOutlookAccessToken } from "@/lib/secondary-auth";
 
-// Unified email endpoint — works for both Gmail and Outlook
+type AnyMessage = GmailMessage | OutlookMessage;
+
+// Unified email endpoint — merges the primary signed-in provider with any
+// secondary connected accounts (e.g. Outlook connected alongside Gmail).
 export async function GET() {
   const session = await getServerSession(authOptions);
 
@@ -12,35 +16,60 @@ export async function GET() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  const messages: AnyMessage[] = [];
+  const sources: string[] = [];
+  let unreadCount = 0;
+  let primaryProvider = "";
+
   try {
+    // ── Primary provider (from sign-in) ──
     if (session.provider === "google") {
-      const [messages, unreadCount] = await Promise.all([
+      const [gmail, unread] = await Promise.all([
         fetchGmailMessages(session.accessToken, 20),
         getGmailUnreadCount(session.accessToken),
       ]);
-      return NextResponse.json({
-        messages,
-        unreadCount,
-        provider: "gmail",
-      });
-    }
-
-    if (session.provider === "microsoft") {
-      const [messages, unreadCount] = await Promise.all([
+      messages.push(...gmail);
+      unreadCount += unread;
+      sources.push("gmail");
+      primaryProvider = "gmail";
+    } else if (session.provider === "microsoft") {
+      const [outlook, unread] = await Promise.all([
         fetchOutlookMessages(session.accessToken, 20),
         getOutlookUnreadCount(session.accessToken),
       ]);
-      return NextResponse.json({
-        messages,
-        unreadCount,
-        provider: "outlook",
-      });
+      messages.push(...outlook);
+      unreadCount += unread;
+      sources.push("outlook");
+      primaryProvider = "outlook";
     }
 
-    return NextResponse.json(
-      { error: "No email provider connected. Sign in with Google or Microsoft." },
-      { status: 400 }
-    );
+    // ── Secondary: Outlook connected independently (only if not already primary) ──
+    if (session.provider !== "microsoft") {
+      const outlookToken = await getOutlookAccessToken();
+      if (outlookToken) {
+        try {
+          const [outlook, unread] = await Promise.all([
+            fetchOutlookMessages(outlookToken, 20),
+            getOutlookUnreadCount(outlookToken),
+          ]);
+          messages.push(...outlook);
+          unreadCount += unread;
+          sources.push("outlook");
+        } catch (e) {
+          console.error("Secondary Outlook fetch failed:", e);
+        }
+      }
+    }
+
+    // Merge: newest first across all sources
+    messages.sort((a, b) => b.timestamp - a.timestamp);
+
+    return NextResponse.json({
+      messages,
+      unreadCount,
+      provider: primaryProvider,
+      sources,
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to fetch emails";

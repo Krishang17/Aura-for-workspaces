@@ -7,9 +7,11 @@ export interface GmailMessage {
   subject: string;
   snippet: string;
   date: string;
+  timestamp: number;
   unread: boolean;
   hasAttachment: boolean;
   labels: string[];
+  source: "gmail";
 }
 
 interface GmailHeader {
@@ -105,10 +107,12 @@ export async function fetchGmailMessages(
         subject: extractHeader(m.payload.headers, "Subject") || "(no subject)",
         snippet: m.snippet,
         date: formatDate(m.internalDate),
+        timestamp: parseInt(m.internalDate, 10) || 0,
         unread: m.labelIds?.includes("UNREAD") ?? false,
         hasAttachment:
           m.payload.parts?.some((p) => p.filename && p.filename.length > 0) ?? false,
         labels: m.labelIds ?? [],
+        source: "gmail" as const,
       };
     });
 }

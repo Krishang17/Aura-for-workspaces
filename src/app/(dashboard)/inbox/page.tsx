@@ -31,6 +31,7 @@ interface EmailMessage {
   date: string;
   unread: boolean;
   hasAttachment: boolean;
+  source: "gmail" | "outlook";
 }
 
 interface EmailDetail {
@@ -75,12 +76,12 @@ export default function InboxPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  async function openEmailDetail(id: string) {
+  async function openEmailDetail(id: string, source: string) {
     setDetailLoading(true);
     setDetailError(null);
     setOpenEmail(null);
     try {
-      const res = await fetch(`/api/emails/${id}`);
+      const res = await fetch(`/api/emails/${id}?source=${source}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Failed to open email");
@@ -260,8 +261,8 @@ export default function InboxPage() {
             <div className="space-y-3">
               {filtered.map((email) => (
                 <Card
-                  key={email.id}
-                  onClick={() => openEmailDetail(email.id)}
+                  key={`${email.source}-${email.id}`}
+                  onClick={() => openEmailDetail(email.id, email.source)}
                   className={`transition-colors hover:bg-muted/30 cursor-pointer ${
                     email.unread ? "border-l-4 border-l-primary" : ""
                   }`}
@@ -283,6 +284,15 @@ export default function InboxPage() {
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {email.date}
+                          </span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                              email.source === "gmail"
+                                ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+                                : "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                            }`}
+                          >
+                            {email.source === "gmail" ? "Gmail" : "Outlook"}
                           </span>
                         </div>
                         <p

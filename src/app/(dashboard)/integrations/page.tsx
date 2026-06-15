@@ -35,8 +35,11 @@ function IntegrationsContent() {
   const [slackUser, setSlackUser] = useState("");
   const [slackTeam, setSlackTeam] = useState("");
   const [slackLoading, setSlackLoading] = useState(true);
+  const [outlookConnected, setOutlookConnected] = useState(false);
+  const [outlookLoading, setOutlookLoading] = useState(true);
 
   const slackParam = searchParams.get("slack");
+  const outlookParam = searchParams.get("outlook");
 
   useEffect(() => {
     async function checkSlack() {
@@ -50,11 +53,23 @@ function IntegrationsContent() {
         setSlackLoading(false);
       }
     }
+    async function checkOutlook() {
+      try {
+        const res = await fetch("/api/outlook/status");
+        const data = await res.json();
+        setOutlookConnected(data.connected);
+      } finally {
+        setOutlookLoading(false);
+      }
+    }
     checkSlack();
+    checkOutlook();
   }, []);
 
   const isGoogle = session?.provider === "google";
   const isMicrosoft = session?.provider === "microsoft";
+  // Microsoft 365 counts as connected if it's the primary sign-in OR connected as secondary
+  const microsoftConnected = isMicrosoft || outlookConnected;
 
   const integrations = [
     {
@@ -78,8 +93,12 @@ function IntegrationsContent() {
       name: "Microsoft 365",
       description:
         "Outlook Mail & Calendar \u2014 read emails, events, and contacts",
-      connected: isMicrosoft,
-      connectedAs: isMicrosoft ? session?.user?.email : undefined,
+      connected: microsoftConnected,
+      connectedAs: isMicrosoft
+        ? session?.user?.email
+        : outlookConnected
+          ? "Connected as a second account"
+          : undefined,
       icon: (
         <svg className="h-8 w-8" viewBox="0 0 21 21">
           <rect x="1" y="1" width="9" height="9" fill="#F25022" />
@@ -141,6 +160,27 @@ function IntegrationsContent() {
           </CardContent>
         </Card>
       )}
+      {outlookParam === "connected" && (
+        <Card className="border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <CardContent className="flex items-center gap-3 p-4">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">
+              Outlook connected! Your Outlook emails and calendar now appear
+              alongside your other accounts.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+      {outlookParam === "error" && (
+        <Card className="border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30">
+          <CardContent className="flex items-center gap-3 p-4">
+            <AlertCircle className="h-5 w-5 text-red-600" />
+            <p className="text-sm font-medium text-red-900 dark:text-red-200">
+              Failed to connect Outlook. Please try again.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-4">
         {integrations.map((integration) => (
@@ -190,6 +230,25 @@ function IntegrationsContent() {
                     }
                   >
                     Connect Slack
+                  </Button>
+                )
+              ) : integration.id === "microsoft" ? (
+                isMicrosoft || outlookConnected ? (
+                  <Button variant="outline" className="gap-1">
+                    Active
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  </Button>
+                ) : outlookLoading ? (
+                  <Button variant="outline" disabled>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() =>
+                      (window.location.href = "/api/outlook/connect")
+                    }
+                  >
+                    Connect Outlook
                   </Button>
                 )
               ) : integration.connected ? (

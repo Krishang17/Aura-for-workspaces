@@ -7,8 +7,10 @@ export interface OutlookMessage {
   subject: string;
   snippet: string;
   date: string;
+  timestamp: number;
   unread: boolean;
   hasAttachment: boolean;
+  source: "outlook";
 }
 
 interface GraphMessage {
@@ -72,8 +74,10 @@ export async function fetchOutlookMessages(
     subject: m.subject || "(no subject)",
     snippet: m.bodyPreview ?? "",
     date: formatDate(m.receivedDateTime),
+    timestamp: new Date(m.receivedDateTime).getTime() || 0,
     unread: !m.isRead,
     hasAttachment: m.hasAttachments,
+    source: "outlook" as const,
   }));
 }
 

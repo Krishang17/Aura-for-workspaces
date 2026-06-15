@@ -1,27 +1,51 @@
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { fetchGoogleCalendar, fetchOutlookCalendar } from "@/lib/calendar";
+import {
+  fetchGoogleCalendar,
+  fetchOutlookCalendar,
+  type CalendarEvent,
+} from "@/lib/calendar";
+import { getOutlookAccessToken } from "@/lib/secondary-auth";
 
+// Unified calendar — merges the primary provider's events with any secondary
+// connected account (e.g. Outlook alongside Google).
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  const events: CalendarEvent[] = [];
+  let primaryProvider = "";
+
   try {
     if (session.provider === "google") {
-      const events = await fetchGoogleCalendar(session.accessToken);
-      return NextResponse.json({ events, provider: "google" });
+      events.push(...(await fetchGoogleCalendar(session.accessToken)));
+      primaryProvider = "google";
+    } else if (session.provider === "microsoft") {
+      events.push(...(await fetchOutlookCalendar(session.accessToken)));
+      primaryProvider = "outlook";
     }
-    if (session.provider === "microsoft") {
-      const events = await fetchOutlookCalendar(session.accessToken);
-      return NextResponse.json({ events, provider: "outlook" });
+
+    // Secondary Outlook calendar (if connected and not already primary)
+    if (session.provider !== "microsoft") {
+      const outlookToken = await getOutlookAccessToken();
+      if (outlookToken) {
+        try {
+          events.push(...(await fetchOutlookCalendar(outlookToken)));
+        } catch (e) {
+          console.error("Secondary Outlook calendar fetch failed:", e);
+        }
+      }
     }
-    return NextResponse.json(
-      { error: "No calendar provider connected" },
-      { status: 400 }
+
+    // Sort chronologically
+    events.sort(
+      (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
     );
+
+    return NextResponse.json({ events, provider: primaryProvider });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to fetch calendar";
