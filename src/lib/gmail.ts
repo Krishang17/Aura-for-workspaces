@@ -113,6 +113,91 @@ export async function fetchGmailMessages(
     });
 }
 
+// ── Full message body (for opening an email) ──
+
+export interface GmailMessageDetail {
+  id: string;
+  from: string;
+  fromEmail: string;
+  to: string;
+  subject: string;
+  date: string;
+  bodyHtml: string;
+  bodyText: string;
+}
+
+interface GmailPart {
+  mimeType?: string;
+  filename?: string;
+  body?: { data?: string; size?: number };
+  parts?: GmailPart[];
+}
+
+function decodeBase64Url(data: string): string {
+  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
+  if (typeof atob === "function") {
+    try {
+      return decodeURIComponent(escape(atob(normalized)));
+    } catch {
+      return atob(normalized);
+    }
+  }
+  return Buffer.from(normalized, "base64").toString("utf-8");
+}
+
+// Recursively walk MIME parts to find HTML and plain-text bodies
+function extractBodies(part: GmailPart): { html: string; text: string } {
+  let html = "";
+  let text = "";
+
+  if (part.mimeType === "text/html" && part.body?.data) {
+    html += decodeBase64Url(part.body.data);
+  } else if (part.mimeType === "text/plain" && part.body?.data) {
+    text += decodeBase64Url(part.body.data);
+  }
+
+  if (part.parts) {
+    for (const child of part.parts) {
+      const childBodies = extractBodies(child);
+      html += childBodies.html;
+      text += childBodies.text;
+    }
+  }
+
+  return { html, text };
+}
+
+export async function fetchGmailMessage(
+  accessToken: string,
+  messageId: string
+): Promise<GmailMessageDetail> {
+  const res = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gmail message fetch failed (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+  const headers: GmailHeader[] = data.payload?.headers ?? [];
+  const { name, email } = parseFrom(extractHeader(headers, "From"));
+  const { html, text } = extractBodies(data.payload ?? {});
+
+  return {
+    id: data.id,
+    from: name,
+    fromEmail: email,
+    to: extractHeader(headers, "To"),
+    subject: extractHeader(headers, "Subject") || "(no subject)",
+    date: extractHeader(headers, "Date"),
+    bodyHtml: html,
+    bodyText: text,
+  };
+}
+
 export async function getGmailUnreadCount(accessToken: string): Promise<number> {
   // Count unread messages in the Primary inbox category only
   const query = encodeURIComponent("in:inbox category:primary is:unread");

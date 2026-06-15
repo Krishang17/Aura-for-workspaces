@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Inbox,
   MessageSquare,
+  X,
 } from "lucide-react";
 
 interface EmailMessage {
@@ -30,6 +31,17 @@ interface EmailMessage {
   date: string;
   unread: boolean;
   hasAttachment: boolean;
+}
+
+interface EmailDetail {
+  id: string;
+  from: string;
+  fromEmail: string;
+  to: string;
+  subject: string;
+  date: string;
+  bodyHtml: string;
+  bodyText: string;
 }
 
 interface SlackMsg {
@@ -57,6 +69,34 @@ export default function InboxPage() {
   const [slackConnected, setSlackConnected] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [tab, setTab] = useState<Tab>("email");
+
+  // Email detail modal
+  const [openEmail, setOpenEmail] = useState<EmailDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  async function openEmailDetail(id: string) {
+    setDetailLoading(true);
+    setDetailError(null);
+    setOpenEmail(null);
+    try {
+      const res = await fetch(`/api/emails/${id}`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to open email");
+      }
+      const data = await res.json();
+      setOpenEmail(data.message);
+      // Optimistically mark as read in the list
+      setEmails((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, unread: false } : e))
+      );
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : "Failed to open email");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   useEffect(() => {
     async function loadEmails() {
@@ -221,6 +261,7 @@ export default function InboxPage() {
               {filtered.map((email) => (
                 <Card
                   key={email.id}
+                  onClick={() => openEmailDetail(email.id)}
                   className={`transition-colors hover:bg-muted/30 cursor-pointer ${
                     email.unread ? "border-l-4 border-l-primary" : ""
                   }`}
@@ -269,6 +310,7 @@ export default function InboxPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 gap-1 text-xs text-primary"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <Sparkles className="h-3 w-3" />
                           AI Draft
@@ -380,6 +422,86 @@ export default function InboxPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* ─── Email Detail Modal ─── */}
+      {(openEmail || detailLoading || detailError) && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => {
+            setOpenEmail(null);
+            setDetailError(null);
+          }}
+        >
+          <div
+            className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => {
+                setOpenEmail(null);
+                setDetailError(null);
+              }}
+              className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {detailLoading && (
+              <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                <p className="text-sm">Opening email...</p>
+              </div>
+            )}
+
+            {detailError && !detailLoading && (
+              <div className="flex flex-col items-center justify-center py-24 text-center px-6">
+                <AlertCircle className="h-8 w-8 text-red-500 mb-3" />
+                <p className="text-sm font-medium">Could not open email</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {detailError}
+                </p>
+              </div>
+            )}
+
+            {openEmail && !detailLoading && (
+              <>
+                {/* Header */}
+                <div className="border-b border-border p-6 pr-12">
+                  <h2 className="text-lg font-semibold leading-snug">
+                    {openEmail.subject}
+                  </h2>
+                  <div className="mt-3 flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {getInitials(openEmail.from)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{openEmail.from}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {openEmail.fromEmail}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body */}
+                <div className="overflow-y-auto p-6">
+                  {openEmail.bodyHtml ? (
+                    <div
+                      className="prose prose-sm max-w-none text-sm [&_a]:text-primary [&_img]:max-w-full"
+                      dangerouslySetInnerHTML={{ __html: openEmail.bodyHtml }}
+                    />
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm text-foreground">
+                      {openEmail.bodyText || "(This email has no readable text content.)"}
+                    </pre>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const [emailsLoading, setEmailsLoading] = useState(true);
   const [slackConnected, setSlackConnected] = useState(false);
   const [slackTeam, setSlackTeam] = useState("");
+  const [meetingCount, setMeetingCount] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -50,6 +51,17 @@ export default function DashboardPage() {
         }
       } finally {
         setEmailsLoading(false);
+      }
+
+      // Load today's calendar events
+      try {
+        const res = await fetch("/api/calendar");
+        if (res.ok) {
+          const data = await res.json();
+          setMeetingCount((data.events ?? []).length);
+        }
+      } catch {
+        // Calendar unavailable — leave as null
       }
 
       // Check Slack status
@@ -158,7 +170,9 @@ export default function DashboardPage() {
               <CalendarDays className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-2xl font-bold">—</p>
+              <p className="text-2xl font-bold">
+                {meetingCount === null ? "—" : meetingCount}
+              </p>
               <p className="text-xs text-muted-foreground">Today&apos;s Meetings</p>
             </div>
           </CardContent>

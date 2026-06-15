@@ -77,6 +77,55 @@ export async function fetchOutlookMessages(
   }));
 }
 
+export interface OutlookMessageDetail {
+  id: string;
+  from: string;
+  fromEmail: string;
+  to: string;
+  subject: string;
+  date: string;
+  bodyHtml: string;
+  bodyText: string;
+}
+
+export async function fetchOutlookMessage(
+  accessToken: string,
+  messageId: string
+): Promise<OutlookMessageDetail> {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/me/messages/${messageId}?$select=id,subject,body,from,toRecipients,receivedDateTime`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Outlook message fetch failed (${res.status}): ${err}`);
+  }
+
+  const m = await res.json();
+  const isHtml = m.body?.contentType === "html";
+
+  return {
+    id: m.id,
+    from: m.from?.emailAddress?.name ?? "Unknown",
+    fromEmail: m.from?.emailAddress?.address ?? "",
+    to:
+      (m.toRecipients ?? [])
+        .map((r: { emailAddress?: { address?: string } }) => r.emailAddress?.address)
+        .filter(Boolean)
+        .join(", ") ?? "",
+    subject: m.subject || "(no subject)",
+    date: m.receivedDateTime ?? "",
+    bodyHtml: isHtml ? m.body?.content ?? "" : "",
+    bodyText: isHtml ? "" : m.body?.content ?? "",
+  };
+}
+
 export async function getOutlookUnreadCount(
   accessToken: string
 ): Promise<number> {
