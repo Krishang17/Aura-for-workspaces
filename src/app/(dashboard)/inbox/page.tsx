@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { formatRelativeTime } from "@/lib/format-time";
 import {
   Mail,
   Sparkles,
@@ -29,6 +30,7 @@ interface EmailMessage {
   subject: string;
   snippet: string;
   date: string;
+  timestamp: number;
   unread: boolean;
   hasAttachment: boolean;
   source: "gmail" | "outlook";
@@ -283,7 +285,7 @@ export default function InboxPage() {
                           </span>
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            {email.date}
+                            {formatRelativeTime(email.timestamp)}
                           </span>
                           <span
                             className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${

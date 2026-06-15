@@ -11,6 +11,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatRelativeTime } from "@/lib/format-time";
 import {
   Mail,
   CalendarDays,
@@ -26,6 +27,7 @@ interface EmailMessage {
   from: string;
   subject: string;
   date: string;
+  timestamp: number;
   unread: boolean;
 }
 
@@ -238,7 +240,7 @@ export default function DashboardPage() {
                     <Badge variant="destructive">new</Badge>
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      {item.date}
+                      {formatRelativeTime(item.timestamp)}
                     </span>
                   </div>
                 </div>

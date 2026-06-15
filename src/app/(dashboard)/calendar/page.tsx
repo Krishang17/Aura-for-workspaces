@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatClockTime } from "@/lib/format-time";
 import {
   CalendarDays,
   AlertTriangle,
@@ -184,7 +185,7 @@ export default function CalendarPage() {
                         <Clock className="h-3 w-3" />
                         {event.allDay
                           ? "All day"
-                          : `${event.startLabel} – ${event.endLabel}`}
+                          : `${formatClockTime(event.start)} – ${formatClockTime(event.end)}`}
                       </span>
                       {event.location && (
                         <span className="flex items-center gap-1">

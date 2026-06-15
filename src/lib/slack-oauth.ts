@@ -39,10 +39,11 @@ export async function getSlackToken(): Promise<string | null> {
 export function buildSlackAuthUrl(): string {
   const params = new URLSearchParams({
     client_id: process.env.SLACK_CLIENT_ID!,
-    scope:
+    // Request USER token scopes (Aura reads the signed-in user's own
+    // channels/DMs) rather than bot scopes — the app has no bot user.
+    user_scope:
       "channels:read,channels:history,groups:read,groups:history,im:read,im:history,mpim:read,mpim:history,users:read",
     redirect_uri: `${process.env.NEXTAUTH_URL}/api/slack/callback`,
-    response_type: "code",
   });
 
   return `https://slack.com/oauth/v2/authorize?${params.toString()}`;
