@@ -78,10 +78,24 @@ export default function InboxPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  // AI draft reply
+  const [draft, setDraft] = useState("");
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function resetDraft() {
+    setDraft("");
+    setDraftError(null);
+    setDraftLoading(false);
+    setCopied(false);
+  }
+
   async function openEmailDetail(id: string, source: string) {
     setDetailLoading(true);
     setDetailError(null);
     setOpenEmail(null);
+    resetDraft();
     try {
       const res = await fetch(`/api/emails/${id}?source=${source}`);
       if (!res.ok) {
@@ -99,6 +113,37 @@ export default function InboxPage() {
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  async function generateDraft() {
+    if (!openEmail) return;
+    setDraftLoading(true);
+    setDraftError(null);
+    setCopied(false);
+    try {
+      const res = await fetch("/api/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: openEmail.from,
+          subject: openEmail.subject,
+          body: openEmail.bodyText || openEmail.bodyHtml.replace(/<[^>]+>/g, " "),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate draft");
+      setDraft(data.draft);
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : "Failed to generate draft");
+    } finally {
+      setDraftLoading(false);
+    }
+  }
+
+  async function copyDraft() {
+    await navigator.clipboard.writeText(draft);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   useEffect(() => {
@@ -322,7 +367,10 @@ export default function InboxPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 gap-1 text-xs text-primary"
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await openEmailDetail(email.id, email.source);
+                          }}
                         >
                           <Sparkles className="h-3 w-3" />
                           AI Draft
@@ -498,7 +546,7 @@ export default function InboxPage() {
                 </div>
 
                 {/* Body */}
-                <div className="overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6">
                   {openEmail.bodyHtml ? (
                     <div
                       className="prose prose-sm max-w-none text-sm [&_a]:text-primary [&_img]:max-w-full"
@@ -509,6 +557,61 @@ export default function InboxPage() {
                       {openEmail.bodyText || "(This email has no readable text content.)"}
                     </pre>
                   )}
+
+                  {/* AI Draft Reply */}
+                  {(draft || draftLoading || draftError) && (
+                    <div className="mt-6 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 dark:border-indigo-900 dark:bg-indigo-950/20">
+                      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-indigo-900 dark:text-indigo-200">
+                        <Sparkles className="h-4 w-4" />
+                        AI-Drafted Reply
+                      </div>
+                      {draftLoading && (
+                        <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Writing a reply...
+                        </div>
+                      )}
+                      {draftError && !draftLoading && (
+                        <p className="text-sm text-red-600 dark:text-red-400">
+                          {draftError}
+                        </p>
+                      )}
+                      {draft && !draftLoading && (
+                        <>
+                          <textarea
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            rows={8}
+                            className="w-full resize-y rounded-md border border-border bg-background p-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                          <div className="mt-2 flex gap-2">
+                            <Button size="sm" onClick={copyDraft}>
+                              {copied ? "Copied!" : "Copy"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={generateDraft}
+                            >
+                              Regenerate
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer action */}
+                <div className="border-t border-border p-4">
+                  <Button
+                    onClick={generateDraft}
+                    disabled={draftLoading}
+                    className="gap-2"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {draft ? "Redraft Reply" : "Draft Reply with AI"}
+                  </Button>
                 </div>
               </>
             )}

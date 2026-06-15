@@ -104,3 +104,65 @@ export async function generateExecutiveSummary(
     return { summary: fallbackSummary(d), ai: false };
   }
 }
+
+// ── AI reply draft ──
+
+export interface DraftInput {
+  userName: string;
+  from: string;
+  subject: string;
+  body: string;
+}
+
+export async function generateReplyDraft(
+  d: DraftInput
+): Promise<{ draft: string; error?: string }> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return { draft: "", error: "AI drafting requires an OPENAI_API_KEY." };
+  }
+
+  // Trim the incoming body so we don't blow the context window
+  const body = d.body.slice(0, 4000);
+
+  const prompt = `Write a professional, concise reply to the email below, on behalf of ${d.userName}. Match the sender's tone, be polite and clear, and address their points directly. Output ONLY the reply body text — no subject line, no "Dear/Hi" placeholder names you don't know, and no commentary.
+
+FROM: ${d.from}
+SUBJECT: ${d.subject}
+
+EMAIL:
+${body}`;
+
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an executive assistant that drafts email replies. Write only the reply body.",
+          },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 400,
+        temperature: 0.6,
+      }),
+    });
+
+    if (!res.ok) {
+      return { draft: "", error: `OpenAI error (${res.status})` };
+    }
+    const data = await res.json();
+    const draft = data.choices?.[0]?.message?.content?.trim();
+    if (!draft) return { draft: "", error: "No draft was generated." };
+    return { draft };
+  } catch {
+    return { draft: "", error: "Failed to reach the AI service." };
+  }
+}
